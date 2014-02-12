@@ -4,7 +4,7 @@ check_solr.py - v0.2 -  Chris Ganderton <github@thefraggle.com>
 
 Nagios check script for checking replication issues and ping status on solr slaves.
 
-We simply get the local generation that the core reports it has, and 
+We simply get the local generation that the core reports it has, and
 then query the maximum possible replicateableGeneration the master has told the core about.
 
 OPTIONS:
@@ -39,13 +39,14 @@ def listcores():
     return cores
 
 def repstatus(core):
+    global generationdiff
     rep_cmd     = baseurl + core + '/replication?' + urllib.urlencode({'command':'details','wt':'json'})
 
     rres        = urllib.urlopen(rep_cmd)
     rdata       = json.loads(rres.read())
 
     localgeneration  = rdata['details'].get('generation')
-    mastergeneration = rdata['details']['slave']['masterDetails']['master'].get('replicatableGeneration')
+    mastergeneration = rdata['details']['slave']['masterDetails']['master'].get('replicableGeneration')
 
     if mastergeneration == None or localgeneration == None:
         status = "CRITICAL"
@@ -53,10 +54,11 @@ def repstatus(core):
 
     generationdiff   = mastergeneration - localgeneration
 
-    if generationdiff > threshold_warn:
-        status = "WARNING"
-    elif generationdiff > threshold_crit:
+    if generationdiff >= threshold_crit:
         status = "CRITICAL"
+    elif generationdiff >= threshold_warn:
+        status = "WARNING"
+        print threshold_crit
     else:
         status = "UNKNOWN"
 
@@ -64,7 +66,7 @@ def repstatus(core):
 
 def solrping(core):
     ping_cmd = baseurl + core + '/admin/ping?' + urllib.urlencode({'wt':'json'})
-    
+
     res = urllib.urlopen(ping_cmd)
     data = json.loads(res.read())
 
@@ -81,8 +83,8 @@ def main():
     cmd_parser.add_option("-W", "--webapp", type="string", action="store", dest="solr_server_webapp", help="SOLR Server webapp path")
     cmd_parser.add_option("-P", "--ping", action="store_true", dest="check_ping", help="SOLR Ping", default=False)
     cmd_parser.add_option("-r", "--replication", action="store_true", dest="check_replication", help="SOLR Replication check", default=False)
-    cmd_parser.add_option("-w", "--warn", type="string", action="store", dest="threshold_warn", help="WARN threshold for replication check", default=1)
-    cmd_parser.add_option("-c", "--critical", type="string", action="store", dest="threshold_crit", help="CRIT threshold for replication check", default=2)
+    cmd_parser.add_option("-w", "--warn", type="int", action="store", dest="threshold_warn", help="WARN threshold for replication check", default=1)
+    cmd_parser.add_option("-c", "--critical", type="int", action="store", dest="threshold_crit", help="CRIT threshold for replication check", default=2)
     cmd_parser.add_option("-i", "--ignore", type="string", action="append", dest="ignore_cores", help="SOLR Cores to ignore", default=[])
 
     (cmd_options, cmd_args) = cmd_parser.parse_args()
@@ -129,7 +131,7 @@ def main():
         print "CRITICAL: probably couldn't format JSON data, check SOLR is ok"
         return(3)
     except:
-        print "CRITICAL: Unknown error" 
+        print "CRITICAL: Unknown error"
         return(3)
 
     cores = all_cores - ignore_cores
@@ -150,22 +152,22 @@ def main():
         print "CRITICAL: {0} {1} ".format(errno, strerror)
         return(2)
     except KeyError as strerror:
-        if 'slave' in strerror: 
+        if 'slave' in strerror:
             print "CRITCAL: This doesn't seem to be a slave, are you sure you meant to call -r?"
             return(2)
         else:
             print "CRITICAL: unknown error (error string: {0})".format(strerror)
             print strerror
             return(3)
-    
+
     if pingerrors:
-        print "CRITICAL: Error pinging cores(s) - {0}. Tested core(s) - {1} |TotalOKCores={2}".format(", ".join(pingerrors), ", ".join(cores), len(cores-pingerrors))
+        print "CRITICAL: Error pinging cores(s) - {0}. Tested core(s) - {1} | TotalOKCores={2}".format(", ".join(pingerrors), ", ".join(cores), len(cores-pingerrors))
         return(2)
     elif repcrit:
-        print "CRITICAL: Replication errors on cores(s) - {0}. Tested core(s) - {1} |TotalOKCores={2}".format(", ".join(repcrit), ", ".join(cores), len(cores-repcrit))
+        print "CRITICAL: Replication errors on cores(s) - {0}. Tested core(s) - {1} | Replication is {3} Generations behind Master | TotalOKCores={2}".format(", ".join(repcrit), ", ".join(cores), len(cores-repcrit), generationdiff)
         return(2)
     elif repwarn:
-        print "WARNING: Replication errors on cores(s) - {0}. Tested core(s) - {1} |TotalOKCores={2}".format(", ".join(repwarn), ", ".join(cores), len(cores-repwarn))
+        print "WARNING: Replication errors on cores(s) - {0}. Tested core(s) - {1} | Replication is {3} Generations behind Master  | TotalOKCores={2}".format(", ".join(repwarn), ", ".join(cores), len(cores-repwarn), generationdiff)
         return(1)
     else:
         print "OK. Tested core(s) - {0} |TotalOKCores={1}".format(", ".join(cores), len(cores))
@@ -173,4 +175,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-    
